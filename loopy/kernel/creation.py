@@ -193,7 +193,7 @@ def expand_defines_in_expr(expr, defines):
 
 def get_default_insn_options_dict():
     return {
-        "happens_after": frozenset(),
+        "depends_on": frozenset(),
         "depends_on_is_final": False,
         "no_sync_with": frozenset(),
         "groups": frozenset(),
@@ -289,15 +289,14 @@ def parse_insn_options(opt_dict, options_str, assignee_names=None):
                 result["depends_on_is_final"] = True
                 opt_value = (opt_value[1:]).strip()
 
-            result["happens_after"] = result["happens_after"].union(frozenset(
+            result["depends_on"] = result["depends_on"].union(frozenset(
                     intern(dep.strip()) for dep in opt_value.split(":")
                     if dep.strip()))
 
         elif opt_key == "dep_query" and opt_value is not None:
             from loopy.match import parse_match
             match = parse_match(opt_value)
-            result["happens_after"] = result["happens_after"].union(
-                                                            frozenset([match]))
+            result["depends_on"] = result["depends_on"].union(frozenset([match]))
 
         elif opt_key == "nosync" and opt_value is not None:
             if is_with_block:
@@ -345,7 +344,7 @@ def parse_insn_options(opt_dict, options_str, assignee_names=None):
 
         elif opt_key == "if" and opt_value is not None:
             predicates = opt_value.split(":")
-            new_predicates = set()
+            new_predicates = set(result["predicates"])
 
             for pred in predicates:
                 from pymbolic.primitives import LogicalNot
@@ -685,7 +684,6 @@ def _count_open_paren_symbols(s):
 
 
 def parse_instructions(instructions, defines):
-
     if isinstance(instructions, str):
         instructions = [instructions]
 
@@ -718,8 +716,8 @@ def parse_instructions(instructions, defines):
 
             copy_args = {
                 "id": intern_if_str(insn.id),
-                "happens_after": frozenset(intern_if_str(dep)
-                    for dep in insn.happens_after),
+                "depends_on": frozenset(intern_if_str(dep)
+                    for dep in insn.depends_on),
                 "groups": frozenset(checked_intern(grp) for grp in insn.groups),
                 "conflicts_with_groups": frozenset(
                     checked_intern(grp) for grp in insn.conflicts_with_groups),
@@ -836,11 +834,11 @@ def parse_instructions(instructions, defines):
                             # If it's inside a for/with block, then it's
                             # final now.
                             bool(local_w_inames)),
-                        happens_after=(
+                        depends_on=(
                             (insn.depends_on
-                                | insn_options_stack[-1]["happens_after"])
-                            if insn_options_stack[-1]["happens_after"] is not None
-                            else insn.happens_after),
+                                | insn_options_stack[-1]["depends_on"])
+                            if insn_options_stack[-1]["depends_on"] is not None
+                            else insn.depends_on),
                         tags=(
                             insn.tags
                             | insn_options_stack[-1]["tags"]),
@@ -1446,6 +1444,32 @@ def expand_cses(instructions, inames_to_dup, cse_prefix="cse_expr"):
 # }}}
 
 
+# {{{ add_sequential_dependencies
+
+def add_sequential_dependencies(knl):
+    new_insns = []
+    prev_insn = None
+    for insn in knl.instructions:
+        depon = insn.depends_on
+        if depon is None:
+            depon = frozenset()
+
+        if prev_insn is not None:
+            depon = depon | frozenset((prev_insn.id,))
+
+        insn = insn.copy(
+                depends_on=depon,
+                depends_on_is_final=True)
+
+        new_insns.append(insn)
+
+        prev_insn = insn
+
+    return knl.copy(instructions=new_insns)
+
+# }}}
+
+
 # {{{ temporary variable creation
 
 def create_temporaries(knl, default_order):
@@ -1795,20 +1819,18 @@ def resolve_dependencies(knl):
     new_insns = []
 
     for insn in knl.instructions:
-        happens_after = _resolve_dependencies(
-                "a dependency", knl, insn, insn.happens_after)
+        depends_on = _resolve_dependencies(
+                "a dependency", knl, insn, insn.depends_on)
         no_sync_with = frozenset(
                 (resolved_insn_id, nosync_scope)
                 for nosync_dep, nosync_scope in insn.no_sync_with
                 for resolved_insn_id in
                 _resolve_dependencies("nosync", knl, insn, (nosync_dep,)))
 
-        if happens_after == insn.happens_after and \
-                no_sync_with == insn.no_sync_with:
+        if depends_on == insn.depends_on and no_sync_with == insn.no_sync_with:
             new_insn = insn
         else:
-            new_insn = insn.copy(happens_after=happens_after,
-                                 no_sync_with=no_sync_with)
+            new_insn = insn.copy(depends_on=depends_on, no_sync_with=no_sync_with)
         new_insns.append(new_insn)
 
     return knl.copy(instructions=new_insns)
@@ -1902,17 +1924,13 @@ def apply_single_writer_depencency_heuristic(kernel, warn_if_used=True,
 
             # }}}
 
-            happens_after = insn.happens_after
+            depends_on = insn.depends_on
+            if depends_on is None:
+                depends_on = frozenset()
 
-            if not isinstance(happens_after, frozenset):
-                happens_after = frozenset(happens_after)
+            new_deps = frozenset(auto_deps) | depends_on
 
-            if happens_after is None:
-                happens_after = frozenset()
-
-            new_deps = frozenset(auto_deps) | frozenset(happens_after)
-
-            if new_deps != happens_after:
+            if new_deps != depends_on:
                 msg = (
                     "The single-writer dependency heuristic added dependencies "
                     "on instruction ID(s) '%s' to instruction ID '%s' after "
@@ -1921,13 +1939,13 @@ def apply_single_writer_depencency_heuristic(kernel, warn_if_used=True,
                     "To fix this, ensure that instruction dependencies "
                     "are added/resolved as soon as possible, ideally at kernel "
                     "creation time."
-                    % (", ".join(new_deps - happens_after), insn.id))
+                    % (", ".join(new_deps - depends_on), insn.id))
                 if warn_if_used:
                     warn_with_kernel(kernel, "single_writer_after_creation", msg)
                 if error_if_used:
                     raise LoopyError(msg)
 
-                insn = insn.copy(happens_after=new_deps)
+                insn = insn.copy(depends_on=new_deps)
                 changed = True
 
         new_insns.append(insn)
@@ -2508,8 +2526,7 @@ def make_function(domains, instructions, kernel_data=None, **kwargs):
     check_for_duplicate_insn_ids(knl)
 
     if seq_dependencies:
-        from loopy.kernel.dependency import add_lexicographic_happens_after
-        knl = add_lexicographic_happens_after(knl)
+        knl = add_sequential_dependencies(knl)
 
     assert len(knl.instructions) == len(inames_to_dup)
 
@@ -2551,10 +2568,7 @@ def make_function(domains, instructions, kernel_data=None, **kwargs):
     knl = guess_arg_shape_if_requested(knl, default_order)
     knl = apply_default_order_to_args(knl, default_order)
     knl = resolve_dependencies(knl)
-
-    # precise dependency semantics should not rely on this
-    if not seq_dependencies:
-        knl = apply_single_writer_depencency_heuristic(knl, warn_if_used=False)
+    knl = apply_single_writer_depencency_heuristic(knl, warn_if_used=False)
 
     # -------------------------------------------------------------------------
     # Ordering dependency:
