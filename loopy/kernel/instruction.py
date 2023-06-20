@@ -91,13 +91,22 @@ class HappensAfter:
 
     .. attribute:: variable_name
 
-       The name of the variable responsible for the dependency.
+       The name of the variable responsible for the dependency. For
+       backward compatibility purposes, this may be *None*. In this case, the
+       dependency semantics revert to the deprecated, statement-level
+       dependencies of prior versions of :mod:`loopy`.
 
     .. attribute:: instances_rel
 
         An :class:`islpy.Map` representing the happens-after relationship. The
         input of the map is an iname tuple and the output of the map is a set
         of iname tuples that must execute after the input.
+
+        Dimensions of the map are named according to the order of inames in a
+        loop nest. The dimensions in the output are appended with a prime to
+        signify that the iname tuples in the input and output are (possibly)
+        distinct sets of statement instances despite the inames being "the
+        same".
 
         As a (deprecated) matter of backward compatibility, this may be *None*,
         in which case the semantics revert to the (underspecified) statement-level
@@ -411,7 +420,6 @@ class InstructionBase(ImmutableRecord, Taggable):
         kwargs = super().get_copy_kwargs(**kwargs)
 
         if passed_depends_on:
-            # warn that this is deprecated
             warn("depends_on is deprecated and will stop working in 2024. "
                  "Instead, use happens_after.", DeprecationWarning, stacklevel=2)
             del kwargs["happens_after"]
@@ -461,6 +469,8 @@ class InstructionBase(ImmutableRecord, Taggable):
 
     @property
     def depends_on(self):
+        warn("depends_on is deprecated and will stop working in 2024. "
+             "Instead, use happens_after.", DeprecationWarning, stacklevel=2)
         return frozenset(self.happens_after)
 
     @property
