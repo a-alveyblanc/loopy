@@ -704,12 +704,11 @@ def get_insns_in_topologically_sorted_order(
     from pytools.graph import compute_topological_order
 
     rev_dep_map: Dict[str, Set[str]] = {
-            insn.id: set() for insn in kernel.instructions
-            if isinstance(insn.id, str)}
+            str(insn.id): set() for insn in kernel.instructions}
     for insn in kernel.instructions:
         for dep in insn.depends_on:
-            if insn.id is not None:
-                rev_dep_map[dep].add(insn.id)
+            assert insn.id is not None
+            rev_dep_map[dep].add(insn.id)
 
     # For breaking ties, we compare the features of an intruction
     # so that instructions with the same set of features are lumped
@@ -2091,9 +2090,7 @@ def _generate_loop_schedules_inner(
 
             schedule=(),
 
-            unscheduled_insn_ids={insn.id
-                                  for insn in kernel.instructions
-                                  if isinstance(insn.id, str)},
+            unscheduled_insn_ids={str(insn.id) for insn in kernel.instructions},
             scheduled_insn_ids=frozenset(),
             within_subkernel=kernel.state != KernelState.LINEARIZED,
             may_schedule_global_barriers=True,
