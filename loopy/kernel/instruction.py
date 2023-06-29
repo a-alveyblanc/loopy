@@ -84,7 +84,7 @@ class UseStreamingStoreTag(Tag):
 
 @dataclass(frozen=True)
 class HappensAfter:
-    """A class representing a "happens-before" relationship between two
+    """A class representing a "happens-after" relationship between two
     statements found in a :class:`loopy.LoopKernel`. Used to validate that a
     given kernel transformation respects the data dependencies in a given
     program.
@@ -98,19 +98,18 @@ class HappensAfter:
 
     .. attribute:: instances_rel
 
-        An :class:`islpy.Map` representing the happens-after relationship. The
-        input of the map is an iname tuple and the output of the map is a set
-        of iname tuples that must execute after the input.
+        An :class:`islpy.Map` representing the precise happens-after
+        relationship. The domain and range are sets of statement instances. The
+        instances in the domain are required to execute before the instances in
+        the range.
 
-        Dimensions of the map are named according to the order of inames in a
-        loop nest. The dimensions in the output are appended with a prime to
-        signify that the iname tuples in the input and output are (possibly)
-        distinct sets of statement instances despite the inames being "the
-        same".
+        Map dimensions are named according to the order of appearance of the
+        inames in a :mod:`loopy` program. The dimension names in the range are
+        appended with a prime to signify that the mapped instances are distinct.
 
         As a (deprecated) matter of backward compatibility, this may be *None*,
-        in which case the semantics revert to the (underspecified) statement-level
-        dependencies of prior versions of :mod:`loopy`.
+        in which case the semantics revert to the (underspecified)
+        statement-level dependencies of prior versions of :mod:`loopy`.
     """
 
     variable_name: Optional[str]
