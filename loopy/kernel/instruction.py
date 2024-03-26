@@ -33,7 +33,8 @@ from pytools import ImmutableRecord, memoize_method
 from pytools.tag import Tag, tag_dataclass, Taggable
 
 from loopy.diagnostic import LoopyError
-from loopy.tools import Optional
+from loopy.tools import Optional as LoopyOptional
+from loopy.typing import ExpressionT
 from collections.abc import Set as abc_Set
 
 
@@ -363,9 +364,9 @@ class InstructionBase(ImmutableRecord, Taggable):
         if depends_on_is_final is None:
             depends_on_is_final = False
 
-        if depends_on_is_final and not isinstance(depends_on, abc_Set):
+        if depends_on_is_final and not isinstance(happens_after, MappingABC):
             raise LoopyError("Setting depends_on_is_final to True requires "
-                    "actually specifying depends_on")
+                    "actually specifying happens_after/depends_on")
 
         if tags is None:
             tags = frozenset()
@@ -389,7 +390,7 @@ class InstructionBase(ImmutableRecord, Taggable):
         # assert all(is_interned(pred) for pred in predicates)
 
         assert isinstance(within_inames, abc_Set)
-        assert isinstance(depends_on, abc_Set) or depends_on is None
+        assert isinstance(happens_after, MappingABC) or happens_after is None
         assert isinstance(groups, abc_Set)
         assert isinstance(conflicts_with_groups, abc_Set)
 
